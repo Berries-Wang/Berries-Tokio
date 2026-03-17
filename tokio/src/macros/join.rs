@@ -1,3 +1,7 @@
+/*
+ * macro_rules! doc { ... } 并不是 Rust 标准库或语言内置的宏。
+ * 定义一个 doc!宏
+ */
 macro_rules! doc {
     ($join:item) => {
         /// Waits on multiple concurrent branches, returning when **all** branches
@@ -111,8 +115,18 @@ doc! {macro_rules! join {
     ($(biased;)? $($future:expr),*) => { unimplemented!() }
 }}
 
+/*
+ * tokio::join! 宏的核心实现。它的主要目标是：并发地运行多个 Future，并等待它们全部完成。
+ * Waits on multiple concurrent branches, returning when all branches complete.
+ *
+ */
 #[cfg(not(doc))]
 doc! {macro_rules! join {
+    /*
+     * @ { ... } 既不是结构体，也不是函数参数。它是一种被称为 “内部模式匹配”（Internal Rules） 或 “标记标记（Marker Tokens）” 的设计模式。
+     * 
+     * @ 的本质：一种“内部私有方法” , 这个分支是宏在递归时内部自用的，用户不应该直接这样调用。
+     */
     (@ {
         // Type of rotator that controls which inner future to start with
         // when polling our output future.
@@ -205,15 +219,32 @@ doc! {macro_rules! join {
 
     // ===== Normalize =====
 
+    /*
+     * $crate::join! : 请递归地调用定义在当前 crate 中的 join! 宏本身 
+     * 
+     * @ :       宏转义变量。
+     * crate :   代表定义宏的那个库
+     * ::join!： 调用该库下的 join! 宏。
+     *
+     */
     (@ { rotator_select=$rotator_select:ty; ( $($s:tt)* ) ( $($n:tt)* ) $($t:tt)* } $e:expr, $($r:tt)* ) => {
         $crate::join!(@{ rotator_select=$rotator_select; ($($s)* _) ($($n)* + 1) $($t)* ($($s)*) $e, } $($r)*)
     };
 
     // ===== Entry point =====
+    /*
+     * 使 join 按从上到下排列的顺序轮询
+     *
+     * $e:expr  ： 表示匹配一个表达式（这里指 Future）
+     * $(...),+ ： 表示前面的表达式可以出现一次或多次，用逗号分隔。
+     * $(,)?    ： 这是一个人性化的设计，允许用户在最后一个 Future 后面加一个可选的逗号（Trailing comma），而不会报错。
+     * $($e,)*  ： 将用户传入的所有 Future 原封不动地传递给内部模式 
+     */
     ( biased; $($e:expr),+ $(,)?) => {
         $crate::join!(@{ rotator_select=$crate::macros::support::SelectBiased; () (0) } $($e,)*)
     };
 
+    // 普通模式（默认）：公平轮询
     ( $($e:expr),+ $(,)?) => {
         $crate::join!(@{ rotator_select=$crate::macros::support::SelectNormal; () (0) } $($e,)*)
     };
